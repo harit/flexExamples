@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:WindowedApplication xmlns:fx="http://ns.adobe.com/mxml/2009" 
+					   xmlns:s="library://ns.adobe.com/flex/spark" 
+					   xmlns:mx="library://ns.adobe.com/flex/mx"
+					   creationComplete="windowedapplication1_creationCompleteHandler(event)">
+	<fx:Script>
+		<![CDATA[
+			import flash.net.navigateToURL;
+			
+			import mx.events.FlexEvent;
+			
+			import org.iotashan.oauth.*;
+			
+			protected var consumerKey:String = "759mz8cv2hknw2";
+			protected var consumerSecret:String = "jQH5qGqL6e8Wisp3";
+			
+			protected var requestTokenUrl:String = "https://api.linkedin.com/uas/oauth/requestToken";
+			protected var authorizeUrl:String = "https://www.linkedin.com/uas/oauth/authorize";
+			
+			//This value is mandatory, but linkedIn will take the URL provided in your settings on linkedin.com
+			protected var authorizeCallbackUrl:String = "http://www.YOURSERVER.com/YOUR_PAGE.html";
+			
+			protected var accessTokenUrl:String = "https://api.linkedin.com/uas/oauth/accessToken";
+			
+			protected var token:OAuthToken = new OAuthToken();
+			protected var consumer:OAuthConsumer = new OAuthConsumer(consumerKey, consumerSecret);
+			protected var signatureMethod:OAuthSignatureMethod_HMAC_SHA1 = new OAuthSignatureMethod_HMAC_SHA1();
+			
+			protected var oauthVerifier:String = "";
+			
+			protected function windowedapplication1_creationCompleteHandler(event:FlexEvent):void
+			{
+				// First launch, try to load the stored token
+				var bytes:ByteArray = null;//EncryptedLocalStore.getItem("keyToken");
+				var bytes2:ByteArray = null;//EncryptedLocalStore.getItem("keySecret");
+				if(bytes != null)
+				{
+					token.key = bytes.readObject() as String;
+					token.secret = bytes2.readObject() as String;
+					
+					trace(token.key + " /// " + token.secret);
+					
+					//test if the token is still authorized
+					testToken();
+				}
+				else
+				{
+					trace("there is no token stored");
+					// we need to request a token first
+					getRequestToken();
+				}
+			}
+			
+			private function testToken():void
+			{
+				// We'll send a classic request to LinkedIn and see if we get a result or not
+				// to test the loaded token
+				var loaderTest:URLLoader = new URLLoader();
+				loaderTest.addEventListener(Event.COMPLETE, resultHandlerTest);
+				loaderTest.addEventListener(HTTPStatusEvent.HTTP_RESPONSE_STATUS, httpResponse);
+				var request:OAuthRequest = new OAuthRequest("GET", "https://api.linkedin.com/v1/people/~", null, consumer, token);
+				loaderTest.load(new URLRequest(request.buildRequest(signatureMethod)));
+				
+			}
+			
+			protected function httpResponse(event:HTTPStatusEvent):void
+			{
+				// TODO Auto-generated method stub
+				trace("HTTP error?");
+			}
+			
+			private function resultHandlerTest(event:Event):void
+			{
+				// TODO Auto Generated method stub
+				var thelist:XML = new XML(event.currentTarget.data);
+				if(thelist..headline != null)
+				{
+					//we can go on and directly call LinkedIn APIs
+					var urlString:String = "http://api.linkedin.com/v1/people/url=http%3A%2F%2Fwww.linkedin.com%2Fpub%2Fajaysinh-mori%2F14%2F62a%2F2a2";
+					var sss:String = encodeURIComponent("http://www.linkedin.com/pub/ajaysinh-mori/14/62a/2a2");
+					sendRequest(urlString);
+				}
+				else
+				{
+					//We need a new token
+					trace("we need a new token");
+					getRequestToken();
+				}
+				trace("ok");
+			}
+			
+			protected function sendRequest(url:String):void
+			{
+				var loader:URLLoader = new URLLoader();
+				loader.addEventListener(Event.COMPLETE, resultHandler);
+				
+				var request:OAuthRequest = new OAuthRequest("GET", url, null, consumer, token);
+				loader.load(new URLRequest(request.buildRequest(signatureMethod)));
+			}
+			
+			protected function resultHandler(event:Event):void
+			{
+				var thelist:XML = new XML(event.currentTarget.data);
+				//list.dataProvider = new XMLListCollection(new XML(event.currentTarget.data)..person);
+			}
+			
+			protected function getRequestToken():void
+			{
+				// First step with Oauth. Get Request Token.
+				
+				var loader:URLLoader = new URLLoader();
+				loader.addEventListener(Event.COMPLETE, requestTokenHandler);
+				
+				var request:OAuthRequest = new OAuthRequest("GET", requestTokenUrl, null, consumer, null);
+				loader.load(new URLRequest(request.buildRequest(signatureMethod)));
+			}
+			
+			protected function requestTokenHandler(event:Event):void
+			{
+				// We received a token from LinkedIn. Let's analyze it.
+				parseToken(event.currentTarget.data);
+				//currentState = "linkHTML";
+				// Now we need to authorize our token so that our AIR app can access the API
+				authorizeToken();
+			}
+			
+			protected function parseToken(response:String):void
+			{
+				// parse the requested token to extract the keys
+				var params:Array = response.split("&");
+				for (var i:int = 0; i < params.length; i++)
+				{
+					var param:String = params[i];
+					var nameValue:Array = param.split("=");
+					if (nameValue.length == 2)
+					{
+						switch (nameValue[0])
+						{
+							case "oauth_token":
+								token.key = nameValue[1];
+								break;
+							case "oauth_token_secret":
+								token.secret = nameValue[1];
+								break;
+						}
+					}
+				}
+			}
+			
+			protected function authorizeToken():void
+			{
+				navigateToURL(new URLRequest(authorizeUrl + "?oauth_token=" + token.key + "&oauth_callback=" + authorizeCallbackUrl));
+				//navigateToURL(new URLRequest(authorizeUrl + "?oauth_token=" + token.key + "&oauth_callback=" + authorizeCallbackUrl));
+				//HTMLcontainer.location = authorizeUrl + "?oauth_token=" + token.key + "&oauth_callback=" + authorizeCallbackUrl;
+				//HTMLcontainer.addEventListener(Event.LOCATION_CHANGE, onLocationChange);
+				
+				//onLocationChange(null);
+			}
+			
+			protected function onLocationChange(event:Event):void
+			{
+				//get the oauth_verifier - the last five characters
+				oauthVerifier = txtPIN.text;//'33943';
+				trace (oauthVerifier);
+				//we have the oauthVerifier code. We can now get the Access API token
+				getAccessToken();
+			}
+			
+			protected function getAccessToken():void
+			{
+				var loader2:URLLoader = new URLLoader();
+				loader2.addEventListener(Event.COMPLETE, accessTokenHandler);
+				var theVerifierCode:String = oauthVerifier;
+				var request:OAuthRequest = new OAuthRequest("GET", accessTokenUrl,{oauth_verifier:theVerifierCode,oauth_version:'1.0'} , consumer, token);
+				loader2.load(new URLRequest(request.buildRequest(signatureMethod)));
+			}
+			
+			protected function accessTokenHandler(event:Event):void
+			{
+				
+				parseToken(event.currentTarget.data);
+				//yeah ! We have a valid token from LinkedIn. Let's store it
+				saveToken();
+				
+				//launch first request
+				sendRequest('http://api.linkedin.com/v1/people/~/connections');
+			}
+			
+			protected function saveToken():void
+			{
+				//saving both keys in the Encrypted Local Storage
+				// for mobile apps, just use a classic Local Shared Object
+				var bytes:ByteArray = new ByteArray();
+				bytes.writeObject(token.key);
+				EncryptedLocalStore.setItem("keyToken",bytes);
+				
+				var bytes2:ByteArray = new ByteArray();
+				bytes2.writeObject(token.secret);
+				EncryptedLocalStore.setItem("keySecret",bytes2);
+			}
+		]]>
+	</fx:Script>
+	
+	<s:HGroup>
+		<s:Button label="got the pin" click="onLocationChange(event)" />
+		<s:TextInput id="txtPIN" width="200" />
+	</s:HGroup>
+	
+</s:WindowedApplication>
